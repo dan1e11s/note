@@ -1,5 +1,5 @@
 import { getDb, PARENT_INDEX, STORE } from "./db";
-import type { FolderNode, FontChoice, NoteNode, TreeNode } from "./types";
+import type { FolderNode, NoteNode, TreeNode } from "./types";
 import { ROOT_ID } from "./types";
 
 function newId(): string {
@@ -57,6 +57,11 @@ export async function getNode(id: string): Promise<TreeNode | undefined> {
   return db.get(STORE, id);
 }
 
+export async function putNode(node: TreeNode): Promise<void> {
+  const db = await getDb();
+  await db.put(STORE, node);
+}
+
 export async function createFolder(parentId: string, title: string): Promise<FolderNode> {
   const timestamp = Date.now();
   const node: FolderNode = {
@@ -83,8 +88,7 @@ export async function createNote(parentId: string, title: string): Promise<NoteN
     order: timestamp,
     createdAt: timestamp,
     updatedAt: timestamp,
-    body: "",
-    font: "system"
+    body: ""
   };
   const db = await getDb();
   await db.put(STORE, node);
@@ -104,16 +108,6 @@ export function saveNoteBody(id: string, body: string): Promise<void> {
     patchNode(id, (node) => {
       if (node.type === "note") {
         node.body = body;
-      }
-    })
-  );
-}
-
-export function setNoteFont(id: string, font: FontChoice): Promise<void> {
-  return enqueue(id, () =>
-    patchNode(id, (node) => {
-      if (node.type === "note") {
-        node.font = font;
       }
     })
   );
@@ -162,4 +156,19 @@ export async function getAncestors(id: string): Promise<TreeNode[]> {
 
   chain.reverse();
   return chain;
+}
+
+export async function exportNodes(): Promise<TreeNode[]> {
+  const db = await getDb();
+  return db.getAll(STORE);
+}
+
+export async function importNodes(nodes: TreeNode[]): Promise<number> {
+  const db = await getDb();
+  const tx = db.transaction(STORE, "readwrite");
+  for (const node of nodes) {
+    await tx.store.put(node);
+  }
+  await tx.done;
+  return nodes.length;
 }

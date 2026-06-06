@@ -1,20 +1,11 @@
 import type { RouteContext } from "../router";
 import { createEditor } from "../editor/editor";
-import type { EditorHandle } from "../editor/editor";
-import { getNode, renameNode, setNoteFont } from "../store/tree";
-import type { FontChoice, NoteNode } from "../store/types";
+import { openNote, renameNode, saveNoteBody } from "../store/vault";
+import type { NoteNode } from "../store/types";
 import { ROOT_ID } from "../store/types";
-import { createIconButton, createIconElement, icons, setIcon } from "../ui/icons";
-import { createThemeToggle } from "../ui/theme";
+import { createIconElement, icons } from "../ui/icons";
 
 const TITLE_SAVE_DELAY = 400;
-const FLASH_DURATION = 1200;
-
-const FONT_OPTIONS: ReadonlyArray<{ value: FontChoice; label: string }> = [
-  { value: "system", label: "Системный шрифт" },
-  { value: "serif", label: "Шрифт с засечками" },
-  { value: "mono", label: "Моноширинный шрифт" }
-];
 
 let renderToken = 0;
 
@@ -25,18 +16,23 @@ export function renderNoteView(host: HTMLElement, context: RouteContext): void {
 }
 
 async function mount(host: HTMLElement, noteId: string, token: number): Promise<void> {
-  const node = await getNode(noteId);
+  const access = await openNote(noteId);
 
   if (token !== renderToken) {
     return;
   }
 
-  if (node === undefined || node.type !== "note") {
+  if (access.status === "missing") {
     window.location.hash = "#/";
     return;
   }
 
-  const note = node;
+  if (access.status === "locked") {
+    window.location.hash = "#/folder/" + access.redirectTo;
+    return;
+  }
+
+  const note = access.note;
 
   const screen = document.createElement("main");
   screen.className = "screen screen-note";
@@ -52,35 +48,39 @@ async function mount(host: HTMLElement, noteId: string, token: number): Promise<
   back.setAttribute("aria-label", "Назад к папке");
   back.append(createIconElement(icons.chevronLeft));
 
-  const editor = createEditor(note);
+  const editor = createEditor({
+    body: access.body,
+    onSave: (text) => {
+      void saveNoteBody(note, text);
+    }
+  });
 
-  const title = createTitleInput(note);
-  const actions = createActions(note, editor);
-  const fontControl = createFontControl(note, editor);
+  const title = createTitleInput(note, access.title);
 
-  toolbar.append(back, title, fontControl, actions);
+  toolbar.append(back, title);
   screen.append(toolbar, editor.element);
 
   host.replaceChildren(screen);
   editor.focus();
 }
 
-function createTitleInput(note: NoteNode): HTMLInputElement {
+function createTitleInput(note: NoteNode, initialTitle: string): HTMLInputElement {
   const input = document.createElement("input");
   input.type = "text";
   input.className = "note-title-input";
-  input.value = note.title;
+  input.value = initialTitle;
   input.setAttribute("aria-label", "Название заметки");
 
+  let currentTitle = initialTitle;
   let timer = 0;
 
   const save = (): void => {
     const value = input.value.trim();
-    if (value.length === 0 || value === note.title) {
+    if (value.length === 0 || value === currentTitle) {
       return;
     }
-    note.title = value;
-    void renameNode(note.id, value);
+    currentTitle = value;
+    void renameNode(note, value);
   };
 
   input.addEventListener("input", () => {
@@ -91,99 +91,11 @@ function createTitleInput(note: NoteNode): HTMLInputElement {
   input.addEventListener("blur", () => {
     window.clearTimeout(timer);
     if (input.value.trim().length === 0) {
-      input.value = note.title;
+      input.value = currentTitle;
       return;
     }
     save();
   });
 
   return input;
-}
-
-function createActions(note: NoteNode, editor: EditorHandle): HTMLElement {
-  const group = document.createElement("div");
-  group.className = "editor-actions";
-
-  const undoButton = createIconButton(icons.reset, "Отменить", "icon-button");
-  undoButton.addEventListener("click", () => {
-    editor.undo();
-  });
-
-  const shareButton = createIconButton(icons.share, "Поделиться", "icon-button");
-  shareButton.addEventListener("click", () => {
-    void shareNote(note, editor.getText(), shareButton);
-  });
-
-  const clearButton = createIconButton(icons.cross, "Очистить заметку", "icon-button danger");
-  clearButton.addEventListener("click", () => {
-    editor.clear();
-  });
-
-  group.append(createThemeToggle(), undoButton, shareButton, clearButton);
-  return group;
-}
-
-function createFontControl(note: NoteNode, editor: EditorHandle): HTMLElement {
-  const control = document.createElement("div");
-  control.className = "font-control";
-  control.setAttribute("role", "group");
-  control.setAttribute("aria-label", "Шрифт");
-
-  const buttons = new Map<FontChoice, HTMLButtonElement>();
-
-  const apply = (font: FontChoice, persist: boolean): void => {
-    editor.setFont(font);
-    buttons.forEach((button, value) => {
-      const active = value === font;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", active ? "true" : "false");
-    });
-    if (persist) {
-      void setNoteFont(note.id, font);
-    }
-  };
-
-  for (const option of FONT_OPTIONS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "font-option";
-    button.dataset.font = option.value;
-    button.textContent = "Aa";
-    button.setAttribute("aria-label", option.label);
-    button.addEventListener("click", () => {
-      apply(option.value, true);
-    });
-    buttons.set(option.value, button);
-    control.append(button);
-  }
-
-  apply(note.font, false);
-  return control;
-}
-
-async function shareNote(note: NoteNode, text: string, button: HTMLButtonElement): Promise<void> {
-  if (typeof navigator.share === "function") {
-    try {
-      await navigator.share({ title: note.title, text });
-    } catch {
-      return;
-    }
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(text);
-    flashIcon(button, icons.check);
-  } catch {
-    flashIcon(button, icons.cross);
-  }
-}
-
-function flashIcon(button: HTMLButtonElement, svg: string): void {
-  setIcon(button, svg);
-  button.disabled = true;
-  window.setTimeout(() => {
-    button.disabled = false;
-    setIcon(button, icons.share);
-  }, FLASH_DURATION);
 }

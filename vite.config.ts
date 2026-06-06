@@ -17,8 +17,8 @@ export default defineConfig({
         scope: "/",
         display: "standalone",
         orientation: "portrait",
-        background_color: "#ffffff",
-        theme_color: "#ffffff",
+        background_color: "#0e0e10",
+        theme_color: "#0e0e10",
         icons: [
           { src: "pwa-192x192.png", sizes: "192x192", type: "image/png" },
           { src: "pwa-512x512.png", sizes: "512x512", type: "image/png" },
@@ -31,7 +31,7 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest,woff2}"],
         navigateFallback: "index.html"
       }
     })

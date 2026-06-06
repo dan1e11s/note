@@ -1,5 +1,3 @@
-import { saveNoteBody } from "../store/tree";
-import type { FontChoice, NoteNode } from "../store/types";
 import { renderInto } from "./linkify";
 import {
   getCaretOffset,
@@ -8,20 +6,17 @@ import {
   readText,
   setCaretOffset
 } from "./text";
-import { History } from "./undo";
-import type { Snapshot } from "./undo";
 
 const SAVE_DELAY = 400;
-const SEAL_DELAY = 500;
+
+export interface EditorOptions {
+  body: string;
+  onSave: (text: string) => void;
+}
 
 export interface EditorHandle {
   element: HTMLElement;
-  setFont(font: FontChoice): void;
   focus(): void;
-  undo(): void;
-  redo(): void;
-  clear(): void;
-  getText(): string;
   destroy(): void;
 }
 
@@ -55,7 +50,7 @@ function isBoundaryInput(event: InputEvent): boolean {
   return event.data !== null && /\s/.test(event.data);
 }
 
-export function createEditor(note: NoteNode): EditorHandle {
+export function createEditor(options: EditorOptions): EditorHandle {
   const element = document.createElement("div");
   element.className = "editor";
   element.contentEditable = "true";
@@ -63,29 +58,19 @@ export function createEditor(note: NoteNode): EditorHandle {
   element.setAttribute("role", "textbox");
   element.setAttribute("aria-multiline", "true");
   element.setAttribute("aria-label", "Текст заметки");
-  element.dataset.font = note.font;
-  renderInto(element, note.body);
-
-  const history = new History({ text: note.body, caret: note.body.length });
+  renderInto(element, options.body);
 
   let saveTimer = 0;
-  let sealTimer = 0;
-  let lastSaved = note.body;
+  let lastSaved = options.body;
   let composing = false;
   let lastPointerType = "mouse";
-
-  const snapshot = (): Snapshot => {
-    const text = readText(element);
-    const caret = getCaretOffset(element);
-    return { text, caret: caret ?? text.length };
-  };
 
   const persist = (text: string): void => {
     if (text === lastSaved) {
       return;
     }
     lastSaved = text;
-    void saveNoteBody(note.id, text);
+    options.onSave(text);
   };
 
   const flush = (): void => {
@@ -103,21 +88,6 @@ export function createEditor(note: NoteNode): EditorHandle {
     saveTimer = window.setTimeout(flush, SAVE_DELAY);
   };
 
-  const seal = (): void => {
-    if (sealTimer !== 0) {
-      window.clearTimeout(sealTimer);
-      sealTimer = 0;
-    }
-    history.record(snapshot());
-  };
-
-  const scheduleSeal = (): void => {
-    if (sealTimer !== 0) {
-      window.clearTimeout(sealTimer);
-    }
-    sealTimer = window.setTimeout(seal, SEAL_DELAY);
-  };
-
   const relinkify = (): void => {
     const offset = document.activeElement === element ? getCaretOffset(element) : null;
     const text = readText(element);
@@ -127,46 +97,13 @@ export function createEditor(note: NoteNode): EditorHandle {
     }
   };
 
-  const applySnapshot = (snap: Snapshot): void => {
-    renderInto(element, snap.text);
-    element.focus();
-    setCaretOffset(element, snap.caret);
-    persist(snap.text);
-  };
-
-  const undo = (): void => {
-    seal();
-    const snap = history.undo();
-    if (snap !== null) {
-      applySnapshot(snap);
-    }
-  };
-
-  const redo = (): void => {
-    seal();
-    const snap = history.redo();
-    if (snap !== null) {
-      applySnapshot(snap);
-    }
-  };
-
-  const clear = (): void => {
-    seal();
-    renderInto(element, "");
-    history.record({ text: "", caret: 0 });
-    persist("");
-    element.focus();
-  };
-
   const onInput = (event: Event): void => {
     scheduleSave();
-    scheduleSeal();
     if (composing) {
       return;
     }
     if (isBoundaryInput(event as InputEvent)) {
       relinkify();
-      seal();
     }
   };
 
@@ -178,12 +115,10 @@ export function createEditor(note: NoteNode): EditorHandle {
     composing = false;
     scheduleSave();
     relinkify();
-    seal();
   };
 
   const onBlur = (): void => {
     relinkify();
-    seal();
     flush();
   };
 
@@ -196,7 +131,6 @@ export function createEditor(note: NoteNode): EditorHandle {
     insertTextAtCaret(text);
     scheduleSave();
     relinkify();
-    seal();
   };
 
   const onPointerDown = (event: PointerEvent): void => {
@@ -224,24 +158,6 @@ export function createEditor(note: NoteNode): EditorHandle {
     window.open(link.href, "_blank", "noopener,noreferrer");
   };
 
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (!(event.metaKey || event.ctrlKey)) {
-      return;
-    }
-    const key = event.key.toLowerCase();
-    if (key === "z") {
-      event.preventDefault();
-      if (event.shiftKey) {
-        redo();
-      } else {
-        undo();
-      }
-    } else if (key === "y") {
-      event.preventDefault();
-      redo();
-    }
-  };
-
   element.addEventListener("input", onInput);
   element.addEventListener("compositionstart", onCompositionStart);
   element.addEventListener("compositionend", onCompositionEnd);
@@ -249,25 +165,15 @@ export function createEditor(note: NoteNode): EditorHandle {
   element.addEventListener("paste", onPaste);
   element.addEventListener("pointerdown", onPointerDown);
   element.addEventListener("click", onClick);
-  element.addEventListener("keydown", onKeyDown);
 
   currentFlush = flush;
   bindLifecycle();
 
   return {
     element,
-    setFont(font: FontChoice): void {
-      element.dataset.font = font;
-    },
     focus(): void {
       element.focus();
       placeCaretAtEnd(element);
-    },
-    undo,
-    redo,
-    clear,
-    getText(): string {
-      return readText(element);
     },
     destroy(): void {
       flush();
@@ -278,7 +184,6 @@ export function createEditor(note: NoteNode): EditorHandle {
       element.removeEventListener("paste", onPaste);
       element.removeEventListener("pointerdown", onPointerDown);
       element.removeEventListener("click", onClick);
-      element.removeEventListener("keydown", onKeyDown);
       if (currentFlush === flush) {
         currentFlush = null;
       }

@@ -4,12 +4,10 @@ import filePlus from "~icons/radix-icons/file-plus";
 import pencil from "~icons/radix-icons/pencil-1";
 import trash from "~icons/radix-icons/trash";
 import chevronLeft from "~icons/radix-icons/chevron-left";
-import reset from "~icons/radix-icons/reset";
-import share from "~icons/radix-icons/share-2";
-import cross from "~icons/radix-icons/cross-2";
-import check from "~icons/radix-icons/check";
-import sun from "~icons/radix-icons/sun";
-import moon from "~icons/radix-icons/moon";
+import download from "~icons/radix-icons/download";
+import upload from "~icons/radix-icons/upload";
+import lockClosed from "~icons/radix-icons/lock-closed";
+import lockOpen from "~icons/radix-icons/lock-open-1";
 
 export const icons = {
   archive,
@@ -18,12 +16,10 @@ export const icons = {
   pencil,
   trash,
   chevronLeft,
-  reset,
-  share,
-  cross,
-  check,
-  sun,
-  moon
+  download,
+  upload,
+  lockClosed,
+  lockOpen
 } as const;
 
 export function createIconElement(svg: string): SVGElement {
